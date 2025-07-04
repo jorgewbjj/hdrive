@@ -86,13 +86,13 @@
     </main>
   </div>
   <script type="module">
-    // Importações do Firebase v9+
+    // Firebase v9 modular imports
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js';
     import { getDatabase, ref, push, onValue } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js';
-    import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-storage.js';
+    import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, listAll } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-storage.js';
 
-    // Configure aqui com suas credenciais
- const firebaseConfig = {
+    // Configurações do Firebase (substitua pelos seus dados)
+const firebaseConfig = {
   apiKey: "AIzaSyDuEszmvG5etjSmLKggR0RsiJz3FY_oaSA",
   authDomain: "hdrive-7d38a.firebaseapp.com",
   projectId: "hdrive-7d38a",
@@ -101,10 +101,12 @@
   appId: "1:644166642656:web:f784b5aefdf63641c15985"
 };
 
+    // Inicialização
     const app = initializeApp(firebaseConfig);
     const database = getDatabase(app);
     const storage = getStorage(app);
 
+    // Elementos do DOM
     const folderListEl = document.getElementById('folderList');
     const createFolderBtn = document.getElementById('createFolderBtn');
     const folderNameInput = document.getElementById('folderNameInput');
@@ -112,10 +114,9 @@
     const uploadBtn = document.getElementById('uploadBtn');
     const fileInput = document.getElementById('fileInput');
     const fileListEl = document.getElementById('fileList');
-
     let currentFolderId = null;
 
-    // Função: listar pastas
+    // Listar pastas
     function listFolders() {
       const foldersRef = ref(database, 'folders');
       onValue(foldersRef, snapshot => {
@@ -128,19 +129,20 @@
           li.addEventListener('click', () => selectFolder(id, data[id].name));
           folderListEl.appendChild(li);
         }
-      });
+      }, error => console.error('Erro DB pastas:', error));
     }
 
-    // Função: criar nova pasta
+    // Criar pasta
     createFolderBtn.addEventListener('click', () => {
       const name = folderNameInput.value.trim();
       if (!name) return;
       const foldersRef = ref(database, 'folders');
-      push(foldersRef, { name });
-      folderNameInput.value = '';
+      push(foldersRef, { name })
+        .then(() => folderNameInput.value = '')
+        .catch(err => console.error('Erro ao criar pasta:', err));
     });
 
-    // Função: selecionar pasta
+    // Selecionar pasta
     function selectFolder(id, name) {
       currentFolderId = id;
       currentFolderTitle.textContent = name;
@@ -148,22 +150,40 @@
       listFiles();
     }
 
-    // Função: listar arquivos da pasta
+    // Adicionar item na lista de arquivos
+    function addFileToList(name, url) {
+      const li = document.createElement('li');
+      const a = document.createElement('a');
+      a.href = url;
+      a.textContent = name;
+      a.target = '_blank';
+      li.appendChild(a);
+      fileListEl.appendChild(li);
+    }
+
+    // Listar arquivos (DB + Storage)
     function listFiles() {
+      fileListEl.innerHTML = '';
+      if (!currentFolderId) return;
+      // Listar do Realtime DB
       const filesRef = ref(database, `files/${currentFolderId}`);
       onValue(filesRef, snapshot => {
-        fileListEl.innerHTML = '';
         const data = snapshot.val() || {};
         for (let key in data) {
-          const li = document.createElement('li');
-          const a = document.createElement('a');
-          a.href = data[key].url;
-          a.textContent = data[key].name;
-          a.target = '_blank';
-          li.appendChild(a);
-          fileListEl.appendChild(li);
+          addFileToList(data[key].name, data[key].url);
         }
-      });
+      }, error => console.error('Erro DB arquivos:', error));
+      // Listar direto do Storage (para arquivos já existentes no bucket)
+      const folderStorageRef = storageRef(storage, currentFolderId);
+      listAll(folderStorageRef)
+        .then(result => {
+          result.items.forEach(itemRef => {
+            getDownloadURL(itemRef)
+              .then(url => addFileToList(itemRef.name, url))
+              .catch(err => console.error('Erro URL arquivo:', err));
+          });
+        })
+        .catch(err => console.error('Erro listAll Storage:', err));
     }
 
     // Upload de arquivo
@@ -172,15 +192,16 @@
       const file = event.target.files[0];
       if (!file || !currentFolderId) return;
       const storageReference = storageRef(storage, `${currentFolderId}/${file.name}`);
-      uploadBytes(storageReference, file).then(snapshot => {
-        getDownloadURL(snapshot.ref).then(url => {
+      uploadBytes(storageReference, file)
+        .then(snapshot => getDownloadURL(snapshot.ref))
+        .then(url => {
           const filesRef = ref(database, `files/${currentFolderId}`);
-          push(filesRef, { name: file.name, url });
-        });
-      });
+          return push(filesRef, { name: file.name, url });
+        })
+        .catch(err => console.error('Erro upload:', err));
     });
 
-    // Inicialização
+    // Inicializa listagem de pastas
     listFolders();
   </script>
 </body>
