@@ -17,22 +17,30 @@
     .sidebar input, .sidebar button { width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #d1d5db; border-radius: 4px; }
     .sidebar button { background-color: #001f3f; color: #fff; border: none; cursor: pointer; transition: background-color 0.2s; }
     .sidebar button:hover { background-color: #001730; }
+
     .main { flex: 1; padding: 20px; display: flex; flex-direction: column; }
     .main h2 { margin-bottom: 20px; font-size: 1.4rem; }
     #uploadBtn { padding: 10px 15px; border: none; border-radius: 4px; background-color: #001f3f; color: #fff; cursor: pointer; transition: background-color 0.2s; margin-bottom: 20px; align-self: flex-start; }
     #uploadBtn:disabled { background-color: #7289ab; cursor: not-allowed; }
     #uploadBtn:hover:not(:disabled) { background-color: #001730; }
+
     #fileList { list-style: none; }
     #fileList li { margin-bottom: 10px; display: flex; align-items: center; }
     #fileList li span { flex: 1; }
+
     .btn { margin-left: 5px; padding: 4px 8px; border: none; border-radius: 4px; background-color: #001f3f; color: #fff; cursor: pointer; transition: background-color 0.2s; }
     .btn:hover { background-color: #001730; }
     .btn.open { background-color: #ffffff; color: #001f3f; border: 1px solid #001f3f; }
     .btn.open:hover { background-color: #cfd8eb; }
     .btn.delete { background-color: #ef4444; }
     .btn.delete:hover { background-color: #dc2626; }
-    .btn.move { background-color: #10b981; }
-    .btn.move:hover { background-color: #059669; }
+    .move-select {
+      margin-left: 5px;
+      padding: 4px;
+      border-radius: 4px;
+      border: 1px solid #d1d5db;
+      background-color: #fff;
+    }
   </style>
 </head>
 <body>
@@ -60,16 +68,15 @@
     // Substitua pelos seus dados do Firebase:
     // databaseURL deve ser do formato https://<seu-app>.firebaseio.com
     // —————————————————————————
-const firebaseConfig = {
-  apiKey: "AIzaSyDuEszmvG5etjSmLKggR0RsiJz3FY_oaSA",
-  authDomain: "hdrive-7d38a.firebaseapp.com",
-  databaseURL: "https://hdrive-7d38a-default-rtdb.firebaseio.com",
-  projectId: "hdrive-7d38a",
-  storageBucket: "hdrive-7d38a.firebasestorage.app",
-  messagingSenderId: "644166642656",
-  appId: "1:644166642656:web:f784b5aefdf63641c15985"
-};
-
+    const firebaseConfig = {
+      apiKey: "AIzaSyDuEszmvG5etjSmLKggR0RsiJz3FY_oaSA",
+      authDomain: "hdrive-7d38a.firebaseapp.com",
+      databaseURL: "https://hdrive-7d38a-default-rtdb.firebaseio.com",
+      projectId: "hdrive-7d38a",
+      storageBucket: "hdrive-7d38a.appspot.com",
+      messagingSenderId: "644166642656",
+      appId: "1:644166642656:web:f784b5aefdf63641c15985"
+    };
 
     const app      = initializeApp(firebaseConfig);
     const database = getDatabase(app);
@@ -136,13 +143,11 @@ const firebaseConfig = {
 
         for (const [key, val] of Object.entries(data)) {
           let url = val.url || null;
-          // caso não haja url, tenta gerar e salva no DB
           if (!url) {
             try {
               url = await getDownloadURL(storageRef(storage, `${currentFolderId}/${val.name}`));
               await update(ref(database, `files/${currentFolderId}/${key}`), { url });
             } catch {
-              // arquivo não existe mais no Storage → remove do DB
               await remove(ref(database, `files/${currentFolderId}/${key}`));
               continue;
             }
@@ -150,7 +155,6 @@ const firebaseConfig = {
           renderFileItem(key, val.name, url);
         }
       };
-
       onValue(filesRef, filesListener);
     }
 
@@ -173,7 +177,7 @@ const firebaseConfig = {
       const btnMove = document.createElement('button');
       btnMove.textContent = 'Mover';
       btnMove.className = 'btn move';
-      btnMove.onclick = () => moveFile(key, name, url);
+      btnMove.onclick = () => showMoveDropdown(key, name, url, li);
 
       const btnDel = document.createElement('button');
       btnDel.textContent = 'Excluir';
@@ -184,6 +188,56 @@ const firebaseConfig = {
       fileListEl.append(li);
     }
 
+    // Exibe dropdown para mover
+    function showMoveDropdown(key, name, url, li) {
+      // Remove dropdowns antigos
+      const existing = li.querySelector('select.move-select');
+      if (existing) {
+        existing.nextSibling.remove(); // remove o botão OK
+        existing.remove();
+        return;
+      }
+
+      const select = document.createElement('select');
+      select.className = 'move-select';
+
+      const placeholder = document.createElement('option');
+      placeholder.textContent = 'Selecione pasta…';
+      placeholder.value = '';
+      placeholder.disabled = true;
+      placeholder.selected = true;
+      select.append(placeholder);
+
+      Object.entries(foldersData).forEach(([id, f]) => {
+        if (id !== currentFolderId) {
+          const opt = document.createElement('option');
+          opt.value = id;
+          opt.textContent = f.name;
+          select.append(opt);
+        }
+      });
+
+      const btnOk = document.createElement('button');
+      btnOk.textContent = 'OK';
+      btnOk.className = 'btn move';
+      btnOk.onclick = async () => {
+        const destId = select.value;
+        if (!destId) return;
+        try {
+          await push(ref(database, `files/${destId}`), { name, url });
+          await remove(ref(database, `files/${currentFolderId}/${key}`));
+        } catch (err) {
+          console.error('Erro ao mover:', err);
+          alert('Não foi possível mover. Veja o console.');
+        } finally {
+          select.remove();
+          btnOk.remove();
+        }
+      };
+
+      li.append(select, btnOk);
+    }
+
     // Renomeia apenas no Realtime Database
     async function renameFile(key, oldName) {
       try {
@@ -192,26 +246,7 @@ const firebaseConfig = {
         await update(ref(database, `files/${currentFolderId}/${key}`), { name: newName });
       } catch (err) {
         console.error('Erro ao renomear:', err);
-        alert('Não foi possível renomear. Veja o console para detalhes.');
-      }
-    }
-
-    // Move o registro para outra pasta no DB
-    async function moveFile(key, name, url) {
-      try {
-        const destNames = Object.values(foldersData)
-          .map(f => f.name)
-          .filter(n => n !== currentFolderTitle.textContent);
-        const destName = prompt(`Mover para: ${destNames.join(', ')}`);
-        const destEntry = Object.entries(foldersData)
-          .find(([, f]) => f.name === destName);
-        if (!destEntry) { alert('Pasta não encontrada'); return; }
-        const [destId] = destEntry;
-        await push(ref(database, `files/${destId}`), { name, url });
-        await remove(ref(database, `files/${currentFolderId}/${key}`));
-      } catch (err) {
-        console.error('Erro ao mover:', err);
-        alert('Não foi possível mover. Veja o console.');
+        alert('Não foi possível renomear. Veja o console.');
       }
     }
 
