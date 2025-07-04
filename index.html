@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gerenciador de Arquivos</title>
+  <style>
+    /* Reset básico */
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: Arial, sans-serif; background-color: #f0f4ff; color: #1e3a8a; }
+    .container { display: flex; height: 100vh; }
+    /* Sidebar */
+    .sidebar {
+      width: 250px;
+      background-color: #ffffff;
+      border-right: 1px solid #d1d5db;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+    }
+    .sidebar h2 { margin-bottom: 15px; font-size: 1.2rem; }
+    #folderList { list-style: none; flex: 1; overflow-y: auto; margin-bottom: 15px; }
+    #folderList li {
+      padding: 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    #folderList li:hover { background-color: #e0e7ff; }
+    .sidebar input,
+    .sidebar button {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 4px;
+    }
+    .sidebar button {
+      background-color: #3b82f6;
+      color: #ffffff;
+      border: none;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    .sidebar button:hover { background-color: #2563eb; }
+    /* Main */
+    .main {
+      flex: 1;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+    }
+    .main h2 { margin-bottom: 20px; font-size: 1.4rem; }
+    #uploadBtn {
+      padding: 10px 15px;
+      border: none;
+      border-radius: 4px;
+      background-color: #3b82f6;
+      color: #ffffff;
+      cursor: pointer;
+      transition: background-color 0.2s;
+      margin-bottom: 20px;
+      align-self: flex-start;
+    }
+    #uploadBtn:disabled { background-color: #a5b4fc; cursor: not-allowed; }
+    #uploadBtn:hover:not(:disabled) { background-color: #2563eb; }
+    #fileList { list-style: none; }
+    #fileList li { margin-bottom: 10px; }
+    #fileList a { text-decoration: none; color: #1e3a8a; border-bottom: 1px solid transparent; transition: border-color 0.2s; }
+    #fileList a:hover { border-color: #3b82f6; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <aside class="sidebar">
+      <h2>Pastas</h2>
+      <ul id="folderList"></ul>
+      <input id="folderNameInput" type="text" placeholder="Nova pasta" />
+      <button id="createFolderBtn">Criar Pasta</button>
+    </aside>
+    <main class="main">
+      <h2 id="currentFolderTitle">Selecione uma pasta</h2>
+      <input id="fileInput" type="file" hidden />
+      <button id="uploadBtn" disabled>Upload de Arquivo</button>
+      <ul id="fileList"></ul>
+    </main>
+  </div>
+  <script type="module">
+    // Importações do Firebase v9+
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js';
+    import { getDatabase, ref, push, onValue } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js';
+    import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-storage.js';
+
+    // Configure aqui com suas credenciais
+ const firebaseConfig = {
+  apiKey: "AIzaSyDuEszmvG5etjSmLKggR0RsiJz3FY_oaSA",
+  authDomain: "hdrive-7d38a.firebaseapp.com",
+  projectId: "hdrive-7d38a",
+  storageBucket: "hdrive-7d38a.firebasestorage.app",
+  messagingSenderId: "644166642656",
+  appId: "1:644166642656:web:f784b5aefdf63641c15985"
+};
+
+    const app = initializeApp(firebaseConfig);
+    const database = getDatabase(app);
+    const storage = getStorage(app);
+
+    const folderListEl = document.getElementById('folderList');
+    const createFolderBtn = document.getElementById('createFolderBtn');
+    const folderNameInput = document.getElementById('folderNameInput');
+    const currentFolderTitle = document.getElementById('currentFolderTitle');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const fileInput = document.getElementById('fileInput');
+    const fileListEl = document.getElementById('fileList');
+
+    let currentFolderId = null;
+
+    // Função: listar pastas
+    function listFolders() {
+      const foldersRef = ref(database, 'folders');
+      onValue(foldersRef, snapshot => {
+        folderListEl.innerHTML = '';
+        const data = snapshot.val() || {};
+        for (let id in data) {
+          const li = document.createElement('li');
+          li.textContent = data[id].name;
+          li.dataset.id = id;
+          li.addEventListener('click', () => selectFolder(id, data[id].name));
+          folderListEl.appendChild(li);
+        }
+      });
+    }
+
+    // Função: criar nova pasta
+    createFolderBtn.addEventListener('click', () => {
+      const name = folderNameInput.value.trim();
+      if (!name) return;
+      const foldersRef = ref(database, 'folders');
+      push(foldersRef, { name });
+      folderNameInput.value = '';
+    });
+
+    // Função: selecionar pasta
+    function selectFolder(id, name) {
+      currentFolderId = id;
+      currentFolderTitle.textContent = name;
+      uploadBtn.disabled = false;
+      listFiles();
+    }
+
+    // Função: listar arquivos da pasta
+    function listFiles() {
+      const filesRef = ref(database, `files/${currentFolderId}`);
+      onValue(filesRef, snapshot => {
+        fileListEl.innerHTML = '';
+        const data = snapshot.val() || {};
+        for (let key in data) {
+          const li = document.createElement('li');
+          const a = document.createElement('a');
+          a.href = data[key].url;
+          a.textContent = data[key].name;
+          a.target = '_blank';
+          li.appendChild(a);
+          fileListEl.appendChild(li);
+        }
+      });
+    }
+
+    // Upload de arquivo
+    uploadBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', event => {
+      const file = event.target.files[0];
+      if (!file || !currentFolderId) return;
+      const storageReference = storageRef(storage, `${currentFolderId}/${file.name}`);
+      uploadBytes(storageReference, file).then(snapshot => {
+        getDownloadURL(snapshot.ref).then(url => {
+          const filesRef = ref(database, `files/${currentFolderId}`);
+          push(filesRef, { name: file.name, url });
+        });
+      });
+    });
+
+    // Inicialização
+    listFolders();
+  </script>
+</body>
+</html>
