@@ -7,26 +7,28 @@
   <style>
     /* Reset básico */
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: Arial, sans-serif; background-color: #f0f4ff; color: #1e3a8a; }
+    body { font-family: Arial, sans-serif; background-color: #e6ebf5; color: #001f3f; }
     .container { display: flex; height: 100vh; }
-    .sidebar { width: 250px; background-color: #fff; border-right: 1px solid #d1d5db; padding: 20px; display: flex; flex-direction: column; }
+    .sidebar { width: 250px; background-color: #ffffff; border-right: 1px solid #d1d5db; padding: 20px; display: flex; flex-direction: column; }
     .sidebar h2 { margin-bottom: 15px; font-size: 1.2rem; }
     #folderList { list-style: none; flex: 1; overflow-y: auto; margin-bottom: 15px; }
     #folderList li { padding: 8px; border-radius: 4px; cursor: pointer; transition: background-color 0.2s; }
-    #folderList li:hover, #folderList li.selected { background-color: #e0e7ff; }
+    #folderList li:hover, #folderList li.selected { background-color: #cfd8eb; }
     .sidebar input, .sidebar button { width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #d1d5db; border-radius: 4px; }
-    .sidebar button { background-color: #3b82f6; color: #fff; border: none; cursor: pointer; transition: background-color 0.2s; }
-    .sidebar button:hover { background-color: #2563eb; }
+    .sidebar button { background-color: #001f3f; color: #fff; border: none; cursor: pointer; transition: background-color 0.2s; }
+    .sidebar button:hover { background-color: #001730; }
     .main { flex: 1; padding: 20px; display: flex; flex-direction: column; }
     .main h2 { margin-bottom: 20px; font-size: 1.4rem; }
-    #uploadBtn { padding: 10px 15px; border: none; border-radius: 4px; background-color: #3b82f6; color: #fff; cursor: pointer; transition: background-color 0.2s; margin-bottom: 20px; align-self: flex-start; }
-    #uploadBtn:disabled { background-color: #a5b4fc; cursor: not-allowed; }
-    #uploadBtn:hover:not(:disabled) { background-color: #2563eb; }
+    #uploadBtn { padding: 10px 15px; border: none; border-radius: 4px; background-color: #001f3f; color: #fff; cursor: pointer; transition: background-color 0.2s; margin-bottom: 20px; align-self: flex-start; }
+    #uploadBtn:disabled { background-color: #7289ab; cursor: not-allowed; }
+    #uploadBtn:hover:not(:disabled) { background-color: #001730; }
     #fileList { list-style: none; }
     #fileList li { margin-bottom: 10px; display: flex; align-items: center; }
     #fileList li span { flex: 1; }
-    .btn { margin-left: 5px; padding: 4px 8px; border: none; border-radius: 4px; background-color: #3b82f6; color: #fff; cursor: pointer; transition: background-color 0.2s; }
-    .btn:hover { background-color: #2563eb; }
+    .btn { margin-left: 5px; padding: 4px 8px; border: none; border-radius: 4px; background-color: #001f3f; color: #fff; cursor: pointer; transition: background-color 0.2s; }
+    .btn:hover { background-color: #001730; }
+    .btn.open { background-color: #ffffff; color: #001f3f; border: 1px solid #001f3f; }
+    .btn.open:hover { background-color: #cfd8eb; }
     .btn.delete { background-color: #ef4444; }
     .btn.delete:hover { background-color: #dc2626; }
     .btn.move { background-color: #10b981; }
@@ -101,7 +103,6 @@ const firebaseConfig = {
     });
 
     function selectFolder(id, name, elem) {
-      // Remove listener antigo
       if (filesRef && filesListener) {
         off(filesRef, 'value', filesListener);
       }
@@ -128,11 +129,11 @@ const firebaseConfig = {
     function renderFileItem(key, { name, url }) {
       const li = document.createElement('li');
       const span = document.createElement('span'); span.textContent = name;
+      const btnOpen = document.createElement('button'); btnOpen.textContent = 'Abrir'; btnOpen.className = 'btn open'; btnOpen.onclick = () => window.open(url, '_blank');
       const btnEdit = document.createElement('button'); btnEdit.textContent = 'Editar'; btnEdit.className = 'btn'; btnEdit.onclick = () => renameFile(key, name);
       const btnMove = document.createElement('button'); btnMove.textContent = 'Mover'; btnMove.className = 'btn move'; btnMove.onclick = () => moveFile(key, name, url);
       const btnDel = document.createElement('button'); btnDel.textContent = 'Excluir'; btnDel.className = 'btn delete'; btnDel.onclick = () => deleteFile(key, name);
-      const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.textContent = '[Abrir]'; a.style.marginLeft = '10px';
-      li.append(span, btnEdit, btnMove, btnDel, a);
+      li.append(span, btnOpen, btnEdit, btnMove, btnDel);
       fileListEl.appendChild(li);
     }
 
@@ -140,13 +141,7 @@ const firebaseConfig = {
       try {
         const newName = prompt('Novo nome:', oldName);
         if (!newName || newName === oldName) return;
-        const oldUrl = await getDownloadURL(storageRef(storage, `${currentFolderId}/${oldName}`));
-        const blob = await (await fetch(oldUrl)).blob();
-        const newRef = storageRef(storage, `${currentFolderId}/${newName}`);
-        const snap = await uploadBytes(newRef, blob);
-        const newUrl = await getDownloadURL(snap.ref);
-        await update(ref(database, `files/${currentFolderId}/${key}`), { name: newName, url: newUrl });
-        await deleteObject(storageRef(storage, `${currentFolderId}/${oldName}`));
+        await update(ref(database, `files/${currentFolderId}/${key}`), { name: newName });
       } catch (err) { console.error('Erro ao renomear:', err); }
     }
 
@@ -178,7 +173,7 @@ const firebaseConfig = {
         const snap = await uploadBytes(refSto, file);
         const url = await getDownloadURL(snap.ref);
         await push(ref(database, `files/${currentFolderId}`), { name: file.name, url });
-        fileInput.value = ''; // limpa para evitar eventos duplos
+        fileInput.value = '';
       } catch (err) { console.error('Erro no upload:', err); }
     };
 
