@@ -9,26 +9,17 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: Arial, sans-serif; background-color: #f0f4ff; color: #1e3a8a; }
     .container { display: flex; height: 100vh; }
-    /* Sidebar */
-    .sidebar {
-      width: 250px;
-      background-color: #ffffff;
-      border-right: 1px solid #d1d5db;
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-    }
+    .sidebar { width: 250px; background-color: #fff; border-right: 1px solid #d1d5db; padding: 20px; display: flex; flex-direction: column; }
     .sidebar h2 { margin-bottom: 15px; font-size: 1.2rem; }
     #folderList { list-style: none; flex: 1; overflow-y: auto; margin-bottom: 15px; }
     #folderList li { padding: 8px; border-radius: 4px; cursor: pointer; transition: background-color 0.2s; }
     #folderList li:hover, #folderList li.selected { background-color: #e0e7ff; }
     .sidebar input, .sidebar button { width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #d1d5db; border-radius: 4px; }
-    .sidebar button { background-color: #3b82f6; color: #ffffff; border: none; cursor: pointer; transition: background-color 0.2s; }
+    .sidebar button { background-color: #3b82f6; color: #fff; border: none; cursor: pointer; transition: background-color 0.2s; }
     .sidebar button:hover { background-color: #2563eb; }
-    /* Main */
     .main { flex: 1; padding: 20px; display: flex; flex-direction: column; }
     .main h2 { margin-bottom: 20px; font-size: 1.4rem; }
-    #uploadBtn { padding: 10px 15px; border: none; border-radius: 4px; background-color: #3b82f6; color: #ffffff; cursor: pointer; transition: background-color 0.2s; margin-bottom: 20px; align-self: flex-start; }
+    #uploadBtn { padding: 10px 15px; border: none; border-radius: 4px; background-color: #3b82f6; color: #fff; cursor: pointer; transition: background-color 0.2s; margin-bottom: 20px; align-self: flex-start; }
     #uploadBtn:disabled { background-color: #a5b4fc; cursor: not-allowed; }
     #uploadBtn:hover:not(:disabled) { background-color: #2563eb; }
     #fileList { list-style: none; }
@@ -58,12 +49,10 @@
     </main>
   </div>
   <script type="module">
-    // Firebase v9 modular imports
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js';
-    import { getDatabase, ref, push, onValue, remove, update } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js';
+    import { getDatabase, ref, push, onValue, off, remove, update } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js';
     import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-storage.js';
 
-    // Configurações do Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyDuEszmvG5etjSmLKggR0RsiJz3FY_oaSA",
   authDomain: "hdrive-7d38a.firebaseapp.com",
@@ -74,12 +63,10 @@ const firebaseConfig = {
   appId: "1:644166642656:web:f784b5aefdf63641c15985"
 };
 
-    // Inicialização
     const app = initializeApp(firebaseConfig);
     const database = getDatabase(app);
     const storage = getStorage(app);
 
-    // DOM elems
     const folderListEl = document.getElementById('folderList');
     const createFolderBtn = document.getElementById('createFolderBtn');
     const folderNameInput = document.getElementById('folderNameInput');
@@ -90,125 +77,111 @@ const firebaseConfig = {
 
     let currentFolderId = null;
     let foldersData = {};
+    let filesRef = null;
+    let filesListener = null;
 
-    // Listar pastas
     function listFolders() {
-      const foldersRef = ref(database, 'folders');
-      onValue(foldersRef, snapshot => {
+      onValue(ref(database, 'folders'), snapshot => {
         folderListEl.innerHTML = '';
         foldersData = snapshot.val() || {};
-        for (let id in foldersData) {
+        Object.entries(foldersData).forEach(([id, f]) => {
           const li = document.createElement('li');
-          li.textContent = foldersData[id].name;
+          li.textContent = f.name;
           li.dataset.id = id;
-          li.addEventListener('click', () => selectFolder(id, foldersData[id].name, li));
+          li.addEventListener('click', () => selectFolder(id, f.name, li));
           folderListEl.appendChild(li);
-        }
+        });
       });
     }
 
-    // Criar pasta
     createFolderBtn.addEventListener('click', () => {
-      const name = folderNameInput.value.trim(); if(!name) return;
+      const name = folderNameInput.value.trim();
+      if (!name) return;
       push(ref(database, 'folders'), { name }).then(() => folderNameInput.value = '');
     });
 
-    // Selecionar pasta
-    function selectFolder(id, name, element) {
+    function selectFolder(id, name, elem) {
+      // Remove listener antigo
+      if (filesRef && filesListener) {
+        off(filesRef, 'value', filesListener);
+      }
       currentFolderId = id;
       currentFolderTitle.textContent = name;
       uploadBtn.disabled = false;
-      // highlight
-      document.querySelectorAll('#folderList li').forEach(li=>li.classList.remove('selected'));
-      element.classList.add('selected');
+      document.querySelectorAll('#folderList li').forEach(li => li.classList.remove('selected'));
+      elem.classList.add('selected');
       listFiles();
     }
 
-    // Listar arquivos
     function listFiles() {
       fileListEl.innerHTML = '';
-      if(!currentFolderId) return;
-      onValue(ref(database, `files/${currentFolderId}`), snapshot => {
+      if (!currentFolderId) return;
+      filesRef = ref(database, `files/${currentFolderId}`);
+      filesListener = snapshot => {
+        fileListEl.innerHTML = '';
         const data = snapshot.val() || {};
-        for(let key in data) {
-          renderFileItem(key, data[key]);
-        }
-      });
+        Object.entries(data).forEach(([key, val]) => renderFileItem(key, val));
+      };
+      onValue(filesRef, filesListener);
     }
 
-    // Render item
     function renderFileItem(key, { name, url }) {
       const li = document.createElement('li');
       const span = document.createElement('span'); span.textContent = name;
-      // Edit
-      const btnEdit = document.createElement('button'); btnEdit.textContent='Editar'; btnEdit.className='btn';
-      btnEdit.onclick = () => renameFile(key, name, url);
-      // Move
-      const btnMove = document.createElement('button'); btnMove.textContent='Mover'; btnMove.className='btn move';
-      btnMove.onclick = () => moveFile(key, name, url);
-      // Delete
-      const btnDel = document.createElement('button'); btnDel.textContent='Excluir'; btnDel.className='btn delete';
-      btnDel.onclick = () => deleteFile(key, name);
-      // Link
-      const a = document.createElement('a'); a.href = url; a.target='_blank'; a.textContent='[Abrir]'; a.style.marginLeft='10px';
+      const btnEdit = document.createElement('button'); btnEdit.textContent = 'Editar'; btnEdit.className = 'btn'; btnEdit.onclick = () => renameFile(key, name);
+      const btnMove = document.createElement('button'); btnMove.textContent = 'Mover'; btnMove.className = 'btn move'; btnMove.onclick = () => moveFile(key, name, url);
+      const btnDel = document.createElement('button'); btnDel.textContent = 'Excluir'; btnDel.className = 'btn delete'; btnDel.onclick = () => deleteFile(key, name);
+      const a = document.createElement('a'); a.href = url; a.target = '_blank'; a.textContent = '[Abrir]'; a.style.marginLeft = '10px';
       li.append(span, btnEdit, btnMove, btnDel, a);
       fileListEl.appendChild(li);
     }
 
-    // Renomear arquivo
-    async function renameFile(key, oldName, url) {
-      const newName = prompt('Novo nome:', oldName);
-      if(!newName||newName===oldName) return;
-      const oldRef = storageRef(storage, `${currentFolderId}/${oldName}`);
-      const blob = await (await fetch(url)).blob();
-      const newRef = storageRef(storage, `${currentFolderId}/${newName}`);
-      const snap = await uploadBytes(newRef, blob);
-      const newUrl = await getDownloadURL(snap.ref);
-      // atualizar DB
-      await update(ref(database, `files/${currentFolderId}/${key}`), { name:newName, url:newUrl });
-      // apagar antigo
-      await deleteObject(oldRef);
+    async function renameFile(key, oldName) {
+      try {
+        const newName = prompt('Novo nome:', oldName);
+        if (!newName || newName === oldName) return;
+        const oldUrl = await getDownloadURL(storageRef(storage, `${currentFolderId}/${oldName}`));
+        const blob = await (await fetch(oldUrl)).blob();
+        const newRef = storageRef(storage, `${currentFolderId}/${newName}`);
+        const snap = await uploadBytes(newRef, blob);
+        const newUrl = await getDownloadURL(snap.ref);
+        await update(ref(database, `files/${currentFolderId}/${key}`), { name: newName, url: newUrl });
+        await deleteObject(storageRef(storage, `${currentFolderId}/${oldName}`));
+      } catch (err) { console.error('Erro ao renomear:', err); }
     }
 
-    // Mover arquivo
     async function moveFile(key, name, url) {
-      const folderNames = Object.values(foldersData).map(f=>f.name).join(', ');
-      const destName = prompt(`Mover para qual pasta? (${folderNames})`);
-      if(!destName) return;
-      const destId = Object.entries(foldersData).find(([,v])=>v.name===destName)?.[0];
-      if(!destId){ alert('Pasta não encontrada'); return; }
-      const oldRef = storageRef(storage, `${currentFolderId}/${name}`);
-      const blob = await (await fetch(url)).blob();
-      const newRef = storageRef(storage, `${destId}/${name}`);
-      const snap = await uploadBytes(newRef, blob);
-      const newUrl = await getDownloadURL(snap.ref);
-      // criar DB na nova pasta
-      await push(ref(database, `files/${destId}`), { name, url:newUrl });
-      // apagar origem
-      await deleteObject(oldRef);
-      await remove(ref(database, `files/${currentFolderId}/${key}`));
+      try {
+        const destOptions = Object.values(foldersData).map(f => f.name).filter(n => n !== currentFolderTitle.textContent);
+        const destName = prompt(`Mover para: ${destOptions.join(', ')}`);
+        const destEntry = Object.entries(foldersData).find(([,f]) => f.name === destName);
+        if (!destEntry) { alert('Pasta não encontrada'); return; }
+        const destId = destEntry[0];
+        await push(ref(database, `files/${destId}`), { name, url });
+        await remove(ref(database, `files/${currentFolderId}/${key}`));
+      } catch (err) { console.error('Erro ao mover:', err); }
     }
 
-    // Excluir arquivo
     async function deleteFile(key, name) {
-      if(!confirm('Excluir este arquivo?')) return;
-      const refDB = ref(database, `files/${currentFolderId}/${key}`);
-      const refSto = storageRef(storage, `${currentFolderId}/${name}`);
-      await deleteObject(refSto);
-      await remove(refDB);
+      if (!confirm('Excluir este arquivo?')) return;
+      try {
+        await deleteObject(storageRef(storage, `${currentFolderId}/${name}`));
+        await remove(ref(database, `files/${currentFolderId}/${key}`));
+      } catch (err) { console.error('Erro ao excluir:', err); }
     }
 
-    // Upload
     uploadBtn.onclick = () => fileInput.click();
     fileInput.onchange = async e => {
-      const file = e.target.files[0]; if(!file||!currentFolderId) return;
-      const refSto = storageRef(storage, `${currentFolderId}/${file.name}`);
-      const snap = await uploadBytes(refSto, file);
-      const url = await getDownloadURL(snap.ref);
-      await push(ref(database, `files/${currentFolderId}`), { name:file.name, url });
+      const file = e.target.files[0]; if (!file || !currentFolderId) return;
+      try {
+        const refSto = storageRef(storage, `${currentFolderId}/${file.name}`);
+        const snap = await uploadBytes(refSto, file);
+        const url = await getDownloadURL(snap.ref);
+        await push(ref(database, `files/${currentFolderId}`), { name: file.name, url });
+        fileInput.value = ''; // limpa para evitar eventos duplos
+      } catch (err) { console.error('Erro no upload:', err); }
     };
 
-    // start
     listFolders();
   </script>
 </body>
