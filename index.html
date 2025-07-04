@@ -65,6 +65,7 @@ const firebaseConfig = {
   appId: "1:644166642656:web:f784b5aefdf63641c15985"
 };
 
+
     const app = initializeApp(firebaseConfig);
     const database = getDatabase(app);
     const storage = getStorage(app);
@@ -103,9 +104,7 @@ const firebaseConfig = {
     });
 
     function selectFolder(id, name, elem) {
-      if (filesRef && filesListener) {
-        off(filesRef, 'value', filesListener);
-      }
+      if (filesRef && filesListener) off(filesRef, 'value', filesListener);
       currentFolderId = id;
       currentFolderTitle.textContent = name;
       uploadBtn.disabled = false;
@@ -118,10 +117,18 @@ const firebaseConfig = {
       fileListEl.innerHTML = '';
       if (!currentFolderId) return;
       filesRef = ref(database, `files/${currentFolderId}`);
-      filesListener = snapshot => {
+      filesListener = async snapshot => {
         fileListEl.innerHTML = '';
         const data = snapshot.val() || {};
-        Object.entries(data).forEach(([key, val]) => renderFileItem(key, val));
+        for (const [key, val] of Object.entries(data)) {
+          try {
+            await getDownloadURL(storageRef(storage, `${currentFolderId}/${val.name}`));
+            renderFileItem(key, val);
+          } catch (err) {
+            // Arquivo não existe no Storage, remover DB
+            await remove(ref(database, `files/${currentFolderId}/${key}`));
+          }
+        }
       };
       onValue(filesRef, filesListener);
     }
@@ -142,19 +149,23 @@ const firebaseConfig = {
         const newName = prompt('Novo nome:', oldName);
         if (!newName || newName === oldName) return;
         await update(ref(database, `files/${currentFolderId}/${key}`), { name: newName });
-      } catch (err) { console.error('Erro ao renomear:', err); }
+      } catch (err) {
+        console.error('Erro ao renomear:', err);
+      }
     }
 
     async function moveFile(key, name, url) {
       try {
-        const destOptions = Object.values(foldersData).map(f => f.name).filter(n => n !== currentFolderTitle.textContent);
-        const destName = prompt(`Mover para: ${destOptions.join(', ')}`);
+        const destNames = Object.values(foldersData).map(f => f.name).filter(n => n !== currentFolderTitle.textContent);
+        const destName = prompt(`Mover para: ${destNames.join(', ')}`);
         const destEntry = Object.entries(foldersData).find(([,f]) => f.name === destName);
         if (!destEntry) { alert('Pasta não encontrada'); return; }
-        const destId = destEntry[0];
+        const [destId] = destEntry;
         await push(ref(database, `files/${destId}`), { name, url });
         await remove(ref(database, `files/${currentFolderId}/${key}`));
-      } catch (err) { console.error('Erro ao mover:', err); }
+      } catch (err) {
+        console.error('Erro ao mover:', err);
+      }
     }
 
     async function deleteFile(key, name) {
@@ -162,19 +173,23 @@ const firebaseConfig = {
       try {
         await deleteObject(storageRef(storage, `${currentFolderId}/${name}`));
         await remove(ref(database, `files/${currentFolderId}/${key}`));
-      } catch (err) { console.error('Erro ao excluir:', err); }
+      } catch (err) {
+        console.error('Erro ao excluir:', err);
+      }
     }
 
     uploadBtn.onclick = () => fileInput.click();
     fileInput.onchange = async e => {
       const file = e.target.files[0]; if (!file || !currentFolderId) return;
       try {
-        const refSto = storageRef(storage, `${currentFolderId}/${file.name}`);
-        const snap = await uploadBytes(refSto, file);
+        const stRef = storageRef(storage, `${currentFolderId}/${file.name}`);
+        const snap = await uploadBytes(stRef, file);
         const url = await getDownloadURL(snap.ref);
         await push(ref(database, `files/${currentFolderId}`), { name: file.name, url });
         fileInput.value = '';
-      } catch (err) { console.error('Erro no upload:', err); }
+      } catch (err) {
+        console.error('Erro no upload:', err);
+      }
     };
 
     listFolders();
