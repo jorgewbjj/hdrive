@@ -26,14 +26,11 @@
 
     #fileList { list-style: none; }
     #fileList li { margin-bottom: 10px; display: flex; align-items: center; }
-    #fileList li span { flex: 1; }
+    #fileList li a.file-link { flex: 1; text-decoration: none; color: #001f3f; cursor: pointer; }
+    #fileList li a.file-link:hover { text-decoration: underline; }
 
     .btn { margin-left: 5px; padding: 4px 8px; border: none; border-radius: 4px; background-color: #001f3f; color: #fff; cursor: pointer; transition: background-color 0.2s; }
     .btn:hover { background-color: #001730; }
-    .btn.open { background-color: #ffffff; color: #001f3f; border: 1px solid #001f3f; }
-    .btn.open:hover { background-color: #cfd8eb; }
-    .btn.delete { background-color: #ef4444; }
-    .btn.delete:hover { background-color: #dc2626; }
     .move-select {
       margin-left: 5px;
       padding: 4px;
@@ -161,14 +158,16 @@
     // Renderiza cada item de arquivo na lista
     function renderFileItem(key, name, url) {
       const li = document.createElement('li');
-      const span = document.createElement('span');
-      span.textContent = name;
 
-      const btnOpen = document.createElement('button');
-      btnOpen.textContent = 'Abrir';
-      btnOpen.className = 'btn open';
-      btnOpen.onclick = () => window.open(url, '_blank');
+      // Link para download
+      const link = document.createElement('a');
+      link.textContent = name;
+      link.href = url;
+      link.download = name;
+      link.className = 'file-link'; 
+      li.append(link);
 
+      // Botões de ação
       const btnEdit = document.createElement('button');
       btnEdit.textContent = 'Editar';
       btnEdit.className = 'btn';
@@ -184,23 +183,21 @@
       btnDel.className = 'btn delete';
       btnDel.onclick = () => deleteFile(key, name);
 
-      li.append(span, btnOpen, btnEdit, btnMove, btnDel);
+      li.append(btnEdit, btnMove, btnDel);
       fileListEl.append(li);
     }
 
     // Exibe dropdown para mover
     function showMoveDropdown(key, name, url, li) {
-      // Remove dropdowns antigos
       const existing = li.querySelector('select.move-select');
       if (existing) {
-        existing.nextSibling.remove(); // remove o botão OK
+        existing.nextSibling.remove();
         existing.remove();
         return;
       }
 
       const select = document.createElement('select');
       select.className = 'move-select';
-
       const placeholder = document.createElement('option');
       placeholder.textContent = 'Selecione pasta…';
       placeholder.value = '';
