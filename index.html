@@ -52,14 +52,18 @@
   </div>
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js';
-    import {
-      getDatabase, ref, push, onValue, off, remove, update
-    } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js';
-    import {
-      getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject
-    } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-storage.js';
+    import { getDatabase, ref, push, onValue, off, remove, update } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js';
+    import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-storage.js';
 
-    const firebaseConfig = {
+    // —————————————————————————
+    // 1) Substitua estes valores pelos da sua configuração Firebase:
+    //    Console Firebase > Configurações do Projeto > Seus apps > Config
+    // 2) Atenção: databaseURL deve ter formato
+    //    https://<seu-app>.firebaseio.com
+    // 3) Se usar uploadBytes + getDownloadURL em fetch, configure CORS no bucket:
+    //    gsutil cors set cors.json gs://<seu-app>.appspot.com
+    //    (exemplo de cors.json disponível na doc do Firebase)
+    // —————————————————————————
 const firebaseConfig = {
   apiKey: "AIzaSyDuEszmvG5etjSmLKggR0RsiJz3FY_oaSA",
   authDomain: "hdrive-7d38a.firebaseapp.com",
@@ -69,44 +73,53 @@ const firebaseConfig = {
   messagingSenderId: "644166642656",
   appId: "1:644166642656:web:f784b5aefdf63641c15985"
 };
-;
+
 
     const app = initializeApp(firebaseConfig);
     const database = getDatabase(app);
     const storage = getStorage(app);
 
-    const folderListEl = document.getElementById('folderList');
-    const createFolderBtn = document.getElementById('createFolderBtn');
-    const folderNameInput = document.getElementById('folderNameInput');
+    const folderListEl       = document.getElementById('folderList');
+    const createFolderBtn    = document.getElementById('createFolderBtn');
+    const folderNameInput    = document.getElementById('folderNameInput');
     const currentFolderTitle = document.getElementById('currentFolderTitle');
-    const uploadBtn = document.getElementById('uploadBtn');
-    const fileInput = document.getElementById('fileInput');
-    const fileListEl = document.getElementById('fileList');
+    const uploadBtn          = document.getElementById('uploadBtn');
+    const fileInput          = document.getElementById('fileInput');
+    const fileListEl         = document.getElementById('fileList');
 
     let currentFolderId = null;
-    let foldersData = {};
-    let filesRef = null;
-    let filesListener = null;
+    let foldersData     = {};
+    let filesRef        = null;
+    let filesListener   = null;
 
-    const listFolders = () => onValue(ref(database, 'folders'), snap => {
-      folderListEl.innerHTML = '';
-      foldersData = snap.val() || {};
-      Object.entries(foldersData).forEach(([id, f]) => {
-        const li = document.createElement('li');
-        li.textContent = f.name;
-        li.dataset.id = id;
-        li.onclick = () => selectFolder(id, f.name, li);
-        folderListEl.append(li);
+    // — Lista todas as pastas —
+    function listFolders() {
+      onValue(ref(database, 'folders'), snap => {
+        folderListEl.innerHTML = '';
+        foldersData = snap.val() || {};
+        Object.entries(foldersData).forEach(([id, f]) => {
+          const li = document.createElement('li');
+          li.textContent = f.name;
+          li.dataset.id = id;
+          li.onclick = () => selectFolder(id, f.name, li);
+          folderListEl.append(li);
+        });
       });
-    });
+    }
 
+    // — Cria nova pasta —
     createFolderBtn.onclick = () => {
-      const name = folderNameInput.value.trim(); if (!name) return;
-      push(ref(database, 'folders'), { name }).then(() => folderNameInput.value = '');
+      const name = folderNameInput.value.trim();
+      if (!name) return;
+      push(ref(database, 'folders'), { name })
+        .then(() => folderNameInput.value = '');
     };
 
+    // — Seleciona pasta e inicia listagem de arquivos —
     function selectFolder(id, name, elem) {
-      if (filesRef && filesListener) off(filesRef, 'value', filesListener);
+      if (filesRef && filesListener) {
+        off(filesRef, 'value', filesListener);
+      }
       currentFolderId = id;
       currentFolderTitle.textContent = name;
       uploadBtn.disabled = false;
@@ -115,67 +128,120 @@ const firebaseConfig = {
       listFiles();
     }
 
-    function listFiles() {
+    // — Lista arquivos usando URL armazenada no DB —
+    async function listFiles() {
       fileListEl.innerHTML = '';
       if (!currentFolderId) return;
+
       filesRef = ref(database, `files/${currentFolderId}`);
+
       filesListener = async snap => {
         fileListEl.innerHTML = '';
         const data = snap.val() || {};
+
         for (const [key, val] of Object.entries(data)) {
-          try {
-            const oldRef = storageRef(storage, `${currentFolderId}/${val.name}`);
-            const oldUrl = await getDownloadURL(oldRef);
-            renderFileItem(key, val.name, oldUrl);
-          } catch (err) {
-            await remove(ref(database, `files/${currentFolderId}/${key}`));
+          let url = val.url || null;
+
+          // se não houver url no DB, tenta gerar e salva
+          if (!url) {
+            try {
+              url = await getDownloadURL(storageRef(storage, `${currentFolderId}/${val.name}`));
+              await update(ref(database, `files/${currentFolderId}/${key}`), { url });
+            } catch (err) {
+              // não existe mais no Storage, remove do DB
+              await remove(ref(database, `files/${currentFolderId}/${key}`));
+              continue;
+            }
           }
+
+          renderFileItem(key, val.name, url);
         }
       };
+
       onValue(filesRef, filesListener);
     }
 
+    // — Cria linha de arquivo na lista —
     function renderFileItem(key, name, url) {
       const li = document.createElement('li');
-      const span = document.createElement('span'); span.textContent = name;
-      const btnOpen = document.createElement('button'); btnOpen.textContent = 'Abrir'; btnOpen.className = 'btn open'; btnOpen.onclick = () => window.open(url, '_blank');
-      const btnEdit = document.createElement('button'); btnEdit.textContent = 'Editar'; btnEdit.className = 'btn'; btnEdit.onclick = () => renameFile(key, name, url);
-      const btnMove = document.createElement('button'); btnMove.textContent = 'Mover'; btnMove.className = 'btn move'; btnMove.onclick = () => moveFile(key, name, url);
-      const btnDel = document.createElement('button'); btnDel.textContent = 'Excluir'; btnDel.className = 'btn delete'; btnDel.onclick = () => deleteFile(key, name);
+      const span = document.createElement('span');
+      span.textContent = name;
+
+      const btnOpen = document.createElement('button');
+      btnOpen.textContent = 'Abrir';
+      btnOpen.className = 'btn open';
+      btnOpen.onclick = () => window.open(url, '_blank');
+
+      const btnEdit = document.createElement('button');
+      btnEdit.textContent = 'Editar';
+      btnEdit.className = 'btn';
+      btnEdit.onclick = () => renameFile(key, name);
+
+      const btnMove = document.createElement('button');
+      btnMove.textContent = 'Mover';
+      btnMove.className = 'btn move';
+      btnMove.onclick = () => moveFile(key, name, url);
+
+      const btnDel = document.createElement('button');
+      btnDel.textContent = 'Excluir';
+      btnDel.className = 'btn delete';
+      btnDel.onclick = () => deleteFile(key, name);
+
       li.append(span, btnOpen, btnEdit, btnMove, btnDel);
       fileListEl.append(li);
     }
 
-    async function renameFile(key, oldName, oldUrl) {
+    // — Renomeia arquivo —
+    async function renameFile(key, oldName) {
       try {
         const newName = prompt('Novo nome:', oldName);
         if (!newName || newName === oldName) return;
+
+        // 1) copia do Storage
         const oldRef = storageRef(storage, `${currentFolderId}/${oldName}`);
-        const blob = await (await fetch(oldUrl)).blob();
-        const newRef = storageRef(storage, `${currentFolderId}/${newName}`);
-        const snap = await uploadBytes(newRef, blob);
-        const newUrl = await getDownloadURL(snap.ref);
-        await update(ref(database, `files/${currentFolderId}/${key}`), { name: newName, url: newUrl });
+        const blob = await (await fetch(await getDownloadURL(oldRef))).blob();
+
+        // 2) faz upload com novo nome
+        const newRef  = storageRef(storage, `${currentFolderId}/${newName}`);
+        const snap    = await uploadBytes(newRef, blob);
+        const newUrl  = await getDownloadURL(snap.ref);
+
+        // 3) atualiza DB
+        await update(ref(database, `files/${currentFolderId}/${key}`), {
+          name: newName,
+          url: newUrl
+        });
+
+        // 4) remove antigo
         await deleteObject(oldRef);
       } catch (err) {
         console.error('Erro ao renomear:', err);
+        alert('Não foi possível renomear. Verifique o console para detalhes.');
       }
     }
 
+    // — Move arquivo para outra pasta —
     async function moveFile(key, name, url) {
       try {
-        const destNames = Object.values(foldersData).map(f => f.name).filter(n => n !== currentFolderTitle.textContent);
+        const destNames = Object.values(foldersData)
+          .map(f => f.name)
+          .filter(n => n !== currentFolderTitle.textContent);
         const destName = prompt(`Mover para: ${destNames.join(', ')}`);
-        const destEntry = Object.entries(foldersData).find(([, f]) => f.name === destName);
+        const destEntry = Object.entries(foldersData)
+          .find(([, f]) => f.name === destName);
         if (!destEntry) { alert('Pasta não encontrada'); return; }
         const [destId] = destEntry;
+
+        // push na DB de destino e remove na origem
         await push(ref(database, `files/${destId}`), { name, url });
         await remove(ref(database, `files/${currentFolderId}/${key}`));
       } catch (err) {
         console.error('Erro ao mover:', err);
+        alert('Não foi possível mover. Veja o console.');
       }
     }
 
+    // — Exclui do Storage e DB —
     async function deleteFile(key, name) {
       if (!confirm('Excluir este arquivo?')) return;
       try {
@@ -183,23 +249,28 @@ const firebaseConfig = {
         await remove(ref(database, `files/${currentFolderId}/${key}`));
       } catch (err) {
         console.error('Erro ao excluir:', err);
+        alert('Não foi possível excluir. Veja o console.');
       }
     }
 
+    // — Upload de novo arquivo —
     uploadBtn.onclick = () => fileInput.click();
     fileInput.onchange = async e => {
-      const file = e.target.files[0]; if (!file || !currentFolderId) return;
+      const file = e.target.files[0];
+      if (!file || !currentFolderId) return;
       try {
         const stRef = storageRef(storage, `${currentFolderId}/${file.name}`);
-        const snap = await uploadBytes(stRef, file);
-        const url = await getDownloadURL(snap.ref);
+        const snap  = await uploadBytes(stRef, file);
+        const url   = await getDownloadURL(snap.ref);
         await push(ref(database, `files/${currentFolderId}`), { name: file.name, url });
         fileInput.value = '';
       } catch (err) {
         console.error('Erro no upload:', err);
+        alert('Upload falhou. Veja o console.');
       }
     };
 
+    // — Inicializa —
     listFolders();
   </script>
 </body>
