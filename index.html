@@ -20,54 +20,26 @@
     }
     .sidebar h2 { margin-bottom: 15px; font-size: 1.2rem; }
     #folderList { list-style: none; flex: 1; overflow-y: auto; margin-bottom: 15px; }
-    #folderList li {
-      padding: 8px;
-      border-radius: 4px;
-      cursor: pointer;
-      transition: background-color 0.2s;
-    }
-    #folderList li:hover { background-color: #e0e7ff; }
-    .sidebar input,
-    .sidebar button {
-      width: 100%;
-      padding: 8px;
-      margin-bottom: 10px;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-    }
-    .sidebar button {
-      background-color: #3b82f6;
-      color: #ffffff;
-      border: none;
-      cursor: pointer;
-      transition: background-color 0.2s;
-    }
+    #folderList li { padding: 8px; border-radius: 4px; cursor: pointer; transition: background-color 0.2s; }
+    #folderList li:hover, #folderList li.selected { background-color: #e0e7ff; }
+    .sidebar input, .sidebar button { width: 100%; padding: 8px; margin-bottom: 10px; border: 1px solid #d1d5db; border-radius: 4px; }
+    .sidebar button { background-color: #3b82f6; color: #ffffff; border: none; cursor: pointer; transition: background-color 0.2s; }
     .sidebar button:hover { background-color: #2563eb; }
     /* Main */
-    .main {
-      flex: 1;
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-    }
+    .main { flex: 1; padding: 20px; display: flex; flex-direction: column; }
     .main h2 { margin-bottom: 20px; font-size: 1.4rem; }
-    #uploadBtn {
-      padding: 10px 15px;
-      border: none;
-      border-radius: 4px;
-      background-color: #3b82f6;
-      color: #ffffff;
-      cursor: pointer;
-      transition: background-color 0.2s;
-      margin-bottom: 20px;
-      align-self: flex-start;
-    }
+    #uploadBtn { padding: 10px 15px; border: none; border-radius: 4px; background-color: #3b82f6; color: #ffffff; cursor: pointer; transition: background-color 0.2s; margin-bottom: 20px; align-self: flex-start; }
     #uploadBtn:disabled { background-color: #a5b4fc; cursor: not-allowed; }
     #uploadBtn:hover:not(:disabled) { background-color: #2563eb; }
     #fileList { list-style: none; }
-    #fileList li { margin-bottom: 10px; }
-    #fileList a { text-decoration: none; color: #1e3a8a; border-bottom: 1px solid transparent; transition: border-color 0.2s; }
-    #fileList a:hover { border-color: #3b82f6; }
+    #fileList li { margin-bottom: 10px; display: flex; align-items: center; }
+    #fileList li span { flex: 1; }
+    .btn { margin-left: 5px; padding: 4px 8px; border: none; border-radius: 4px; background-color: #3b82f6; color: #fff; cursor: pointer; transition: background-color 0.2s; }
+    .btn:hover { background-color: #2563eb; }
+    .btn.delete { background-color: #ef4444; }
+    .btn.delete:hover { background-color: #dc2626; }
+    .btn.move { background-color: #10b981; }
+    .btn.move:hover { background-color: #059669; }
   </style>
 </head>
 <body>
@@ -88,13 +60,14 @@
   <script type="module">
     // Firebase v9 modular imports
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-app.js';
-    import { getDatabase, ref, push, onValue } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js';
-    import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, listAll } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-storage.js';
+    import { getDatabase, ref, push, onValue, remove, update } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-database.js';
+    import { getStorage, ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from 'https://www.gstatic.com/firebasejs/9.22.1/firebase-storage.js';
 
-    // Configurações do Firebase (substitua pelos seus dados)
+    // Configurações do Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyDuEszmvG5etjSmLKggR0RsiJz3FY_oaSA",
   authDomain: "hdrive-7d38a.firebaseapp.com",
+  databaseURL: "https://hdrive-7d38a-default-rtdb.firebaseio.com",
   projectId: "hdrive-7d38a",
   storageBucket: "hdrive-7d38a.firebasestorage.app",
   messagingSenderId: "644166642656",
@@ -106,7 +79,7 @@ const firebaseConfig = {
     const database = getDatabase(app);
     const storage = getStorage(app);
 
-    // Elementos do DOM
+    // DOM elems
     const folderListEl = document.getElementById('folderList');
     const createFolderBtn = document.getElementById('createFolderBtn');
     const folderNameInput = document.getElementById('folderNameInput');
@@ -114,94 +87,128 @@ const firebaseConfig = {
     const uploadBtn = document.getElementById('uploadBtn');
     const fileInput = document.getElementById('fileInput');
     const fileListEl = document.getElementById('fileList');
+
     let currentFolderId = null;
+    let foldersData = {};
 
     // Listar pastas
     function listFolders() {
       const foldersRef = ref(database, 'folders');
       onValue(foldersRef, snapshot => {
         folderListEl.innerHTML = '';
-        const data = snapshot.val() || {};
-        for (let id in data) {
+        foldersData = snapshot.val() || {};
+        for (let id in foldersData) {
           const li = document.createElement('li');
-          li.textContent = data[id].name;
+          li.textContent = foldersData[id].name;
           li.dataset.id = id;
-          li.addEventListener('click', () => selectFolder(id, data[id].name));
+          li.addEventListener('click', () => selectFolder(id, foldersData[id].name, li));
           folderListEl.appendChild(li);
         }
-      }, error => console.error('Erro DB pastas:', error));
+      });
     }
 
     // Criar pasta
     createFolderBtn.addEventListener('click', () => {
-      const name = folderNameInput.value.trim();
-      if (!name) return;
-      const foldersRef = ref(database, 'folders');
-      push(foldersRef, { name })
-        .then(() => folderNameInput.value = '')
-        .catch(err => console.error('Erro ao criar pasta:', err));
+      const name = folderNameInput.value.trim(); if(!name) return;
+      push(ref(database, 'folders'), { name }).then(() => folderNameInput.value = '');
     });
 
     // Selecionar pasta
-    function selectFolder(id, name) {
+    function selectFolder(id, name, element) {
       currentFolderId = id;
       currentFolderTitle.textContent = name;
       uploadBtn.disabled = false;
+      // highlight
+      document.querySelectorAll('#folderList li').forEach(li=>li.classList.remove('selected'));
+      element.classList.add('selected');
       listFiles();
     }
 
-    // Adicionar item na lista de arquivos
-    function addFileToList(name, url) {
+    // Listar arquivos
+    function listFiles() {
+      fileListEl.innerHTML = '';
+      if(!currentFolderId) return;
+      onValue(ref(database, `files/${currentFolderId}`), snapshot => {
+        const data = snapshot.val() || {};
+        for(let key in data) {
+          renderFileItem(key, data[key]);
+        }
+      });
+    }
+
+    // Render item
+    function renderFileItem(key, { name, url }) {
       const li = document.createElement('li');
-      const a = document.createElement('a');
-      a.href = url;
-      a.textContent = name;
-      a.target = '_blank';
-      li.appendChild(a);
+      const span = document.createElement('span'); span.textContent = name;
+      // Edit
+      const btnEdit = document.createElement('button'); btnEdit.textContent='Editar'; btnEdit.className='btn';
+      btnEdit.onclick = () => renameFile(key, name, url);
+      // Move
+      const btnMove = document.createElement('button'); btnMove.textContent='Mover'; btnMove.className='btn move';
+      btnMove.onclick = () => moveFile(key, name, url);
+      // Delete
+      const btnDel = document.createElement('button'); btnDel.textContent='Excluir'; btnDel.className='btn delete';
+      btnDel.onclick = () => deleteFile(key, name);
+      // Link
+      const a = document.createElement('a'); a.href = url; a.target='_blank'; a.textContent='[Abrir]'; a.style.marginLeft='10px';
+      li.append(span, btnEdit, btnMove, btnDel, a);
       fileListEl.appendChild(li);
     }
 
-    // Listar arquivos (DB + Storage)
-    function listFiles() {
-      fileListEl.innerHTML = '';
-      if (!currentFolderId) return;
-      // Listar do Realtime DB
-      const filesRef = ref(database, `files/${currentFolderId}`);
-      onValue(filesRef, snapshot => {
-        const data = snapshot.val() || {};
-        for (let key in data) {
-          addFileToList(data[key].name, data[key].url);
-        }
-      }, error => console.error('Erro DB arquivos:', error));
-      // Listar direto do Storage (para arquivos já existentes no bucket)
-      const folderStorageRef = storageRef(storage, currentFolderId);
-      listAll(folderStorageRef)
-        .then(result => {
-          result.items.forEach(itemRef => {
-            getDownloadURL(itemRef)
-              .then(url => addFileToList(itemRef.name, url))
-              .catch(err => console.error('Erro URL arquivo:', err));
-          });
-        })
-        .catch(err => console.error('Erro listAll Storage:', err));
+    // Renomear arquivo
+    async function renameFile(key, oldName, url) {
+      const newName = prompt('Novo nome:', oldName);
+      if(!newName||newName===oldName) return;
+      const oldRef = storageRef(storage, `${currentFolderId}/${oldName}`);
+      const blob = await (await fetch(url)).blob();
+      const newRef = storageRef(storage, `${currentFolderId}/${newName}`);
+      const snap = await uploadBytes(newRef, blob);
+      const newUrl = await getDownloadURL(snap.ref);
+      // atualizar DB
+      await update(ref(database, `files/${currentFolderId}/${key}`), { name:newName, url:newUrl });
+      // apagar antigo
+      await deleteObject(oldRef);
     }
 
-    // Upload de arquivo
-    uploadBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', event => {
-      const file = event.target.files[0];
-      if (!file || !currentFolderId) return;
-      const storageReference = storageRef(storage, `${currentFolderId}/${file.name}`);
-      uploadBytes(storageReference, file)
-        .then(snapshot => getDownloadURL(snapshot.ref))
-        .then(url => {
-          const filesRef = ref(database, `files/${currentFolderId}`);
-          return push(filesRef, { name: file.name, url });
-        })
-        .catch(err => console.error('Erro upload:', err));
-    });
+    // Mover arquivo
+    async function moveFile(key, name, url) {
+      const folderNames = Object.values(foldersData).map(f=>f.name).join(', ');
+      const destName = prompt(`Mover para qual pasta? (${folderNames})`);
+      if(!destName) return;
+      const destId = Object.entries(foldersData).find(([,v])=>v.name===destName)?.[0];
+      if(!destId){ alert('Pasta não encontrada'); return; }
+      const oldRef = storageRef(storage, `${currentFolderId}/${name}`);
+      const blob = await (await fetch(url)).blob();
+      const newRef = storageRef(storage, `${destId}/${name}`);
+      const snap = await uploadBytes(newRef, blob);
+      const newUrl = await getDownloadURL(snap.ref);
+      // criar DB na nova pasta
+      await push(ref(database, `files/${destId}`), { name, url:newUrl });
+      // apagar origem
+      await deleteObject(oldRef);
+      await remove(ref(database, `files/${currentFolderId}/${key}`));
+    }
 
-    // Inicializa listagem de pastas
+    // Excluir arquivo
+    async function deleteFile(key, name) {
+      if(!confirm('Excluir este arquivo?')) return;
+      const refDB = ref(database, `files/${currentFolderId}/${key}`);
+      const refSto = storageRef(storage, `${currentFolderId}/${name}`);
+      await deleteObject(refSto);
+      await remove(refDB);
+    }
+
+    // Upload
+    uploadBtn.onclick = () => fileInput.click();
+    fileInput.onchange = async e => {
+      const file = e.target.files[0]; if(!file||!currentFolderId) return;
+      const refSto = storageRef(storage, `${currentFolderId}/${file.name}`);
+      const snap = await uploadBytes(refSto, file);
+      const url = await getDownloadURL(snap.ref);
+      await push(ref(database, `files/${currentFolderId}`), { name:file.name, url });
+    };
+
+    // start
     listFolders();
   </script>
 </body>
